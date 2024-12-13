@@ -1,8 +1,9 @@
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from configs.config_env import MESH_NUM
+from configs.config_env import MESH_NUM, AREA_SIZE
 
 
 class CreateTopography:
@@ -25,6 +26,13 @@ class CreateTopography:
             x, y = np.meshgrid(x, y)  # 将 x 和 y 变为 2D 网格
             z = np.sin(x) * np.cos(y) * 0.5  # 使用正弦余弦函数，生成较平缓的地形
             z += np.random.normal(0, 0.1, z.shape)  # 加入轻微噪声，生成更自然的起伏
+
+
+x = np.linspace(0, AREA_SIZE, MESH_NUM)  # 在 x 轴上生成 100 个点，范围从 0 到 10
+y = np.linspace(0, AREA_SIZE, MESH_NUM)  # 在 y 轴上生成 100 个点，范围从 0 到 10
+x, y = np.meshgrid(x, y)  # 将 x 和 y 变为 2D 网格
+z = np.sin(x) * np.cos(y) * 0.5  # 使用正弦余弦函数，生成较平缓的地形
+z += np.random.normal(0, 0.1, z.shape)  # 加入轻微噪声，生成更自
 
 # 创建建筑物（长方体）
 def add_building(ax, x, y, width, length, height):
@@ -69,7 +77,9 @@ def add_tree(ax, x, y, trunk_height, crown_height, radius):
 
     # 将树冠的高度调整为与半径相匹配的二维数组
     z_crown = np.outer(np.linspace(trunk_height, trunk_height + crown_height, 30), np.ones(30))
-
+    print(x_crown)
+    print(y_crown)
+    print(z_crown)
     ax.plot_surface(x_crown, y_crown, z_crown, color="green")  # 绘制树冠
 
 

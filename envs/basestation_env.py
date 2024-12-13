@@ -5,48 +5,14 @@ from configs.config_env import *
 GRID_NOT_GENERATED_FLAG = -1
 
 
-class Grid:
-    def __init__(self, dim_Y, lb_Y, ub_Y):
-        self.dim_Y = dim_Y
-        self.lb_Y = lb_Y
-        self.ub_Y = ub_Y
-        self.fineness = GRID_NOT_GENERATED_FLAG
-        self.grid = np.empty((1,))
-        self.size = 0
-
-    # Reset the grid.
-    def reset(self):
-        self.fineness = GRID_NOT_GENERATED_FLAG
-        self.grid = np.empty((1,))
-        self.size = 0
-        return
-
-    # Generate the grid.
-    def generate(self, fineness=100) -> np.ndarray:
-        if self.fineness == fineness:
-            # The grid has been computed.
-            return self.grid
-        elif self.fineness != -1:
-            self.reset()
-
-        self.fineness = fineness
-        self.size = (self.fineness + 1) ** self.dim_Y
-
-        coordinate_lst = []
-        index_array = np.indices(list(self.dim_Y * [self.fineness + 1]))
-        for i in range(self.dim_Y):
-            coordinate_lst.append(index_array[i].reshape(-1) *
-                                  ((self.ub_Y[i] - self.lb_Y[i]) / self.fineness) + self.lb_Y[i])
-        self.grid = np.stack(list(coordinate_lst), axis=1)
-        return self.grid
-
 # We only consider Y is a rectangular in R^d
 class BaseStationEnv(gym.Env):
-    def __init__(self, area_size=AREA_SIZE, num_base_stations=NUM_BASE_STATIONS,
+    def __init__(self, bs_env, area_size=AREA_SIZE, num_base_stations=NUM_BASE_STATIONS,
                  num_users=NUM_USERS, tx_power=TX_POWER, noise_power=NOISE_POWER,shadowing_std = SHADOWING_STD):
         super(BaseStationEnv, self).__init__()
 
         # 环境参数
+        self.env = bs_env
         self.area_size = area_size  # 区域大小
         self.num_base_stations = num_base_stations  # 基站数量
         self.num_users = num_users  # 用户数量
@@ -66,8 +32,8 @@ class BaseStationEnv(gym.Env):
         )
 
         # 初始化用户和基站位置
-        self.users = np.random.uniform(0, area_size, (num_users, 2))
-        self.base_stations = np.random.uniform(0, area_size, (num_base_stations, 2))
+        self.users = np.array([[point['x'], point['y'],0] for point in self.env.users])
+        self.base_stations = np.array([[point['x'], point['y'],point['z']] for point in self.env.bs])
 
     def reset(self):
         """重置环境"""
@@ -109,7 +75,7 @@ class BaseStationEnv(gym.Env):
         """获取环境的状态表示"""
         return np.vstack((self.base_stations, self.users))
 
-    def _calculate_avg_sinr(self):
+    def _calculate_sinr(self):
         """计算所有用户的平均 SINR，包括阴影衰落"""
 
         def dbm_to_watt(dbm):
@@ -118,31 +84,21 @@ class BaseStationEnv(gym.Env):
         def path_loss(distance, exponent, shadowing_std):
             # 添加阴影衰落
             shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
-            return 10 * exponent * np.log10(distance + 1e-9) + shadowing
+            return  42.6 + 26 * np.log10(distance) + 20 * np.log10(2*10^6)
 
-        avg_sinr = 0
-        for user in self.users:
+        sinr_values = []
+        for user in self.users:   # {x:x,y:y}
             distances = np.linalg.norm(self.base_stations - user, axis=1)
             path_losses = path_loss(distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
             received_powers = dbm_to_watt(self.tx_power - path_losses)
+            print(received_powers)
             signal_power = np.max(received_powers)
             interference_power = np.sum(received_powers) - signal_power
             noise_power_watt = dbm_to_watt(self.noise_power)
             sinr = signal_power / (interference_power + noise_power_watt)
-            avg_sinr += np.log2(1 + sinr)  # 使用 Shannon Capacity (bps/Hz)
+            sinr_values.append(sinr)
 
-        return avg_sinr / self.num_users
+        return sinr_values
 
 
-# 测试环境
-env = BaseStationEnv()
 
-# 重置环境
-obs = env.reset()
-
-# 随机动作测试
-for _ in range(10):
-    action = env.action_space.sample()
-    obs, reward, done, _ = env.step(action)
-    print(f"Reward (Average SINR): {reward:.2f}")
-    env.render()
