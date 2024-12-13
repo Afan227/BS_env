@@ -82,15 +82,28 @@ class BaseStationEnv(gym.Env):
             return 10 ** ((dbm - 30) / 10)
 
         def path_loss(distance, exponent, shadowing_std):
-            # 添加阴影衰落
+            # 添加阴影衰落,添加 LOS 与 NLOS 的不同计算方法
+            """
+            PL_LOS = PL1 else PL2  if 10<d_2D<d_BP
+            PL1 = 28+22*log10(d_3D)+20log10(f)
+            PL2 = 28+40*log10(d_3D)+20log10(f)-9log10((d_BP)^2+(h_BS-h_UE)^2)   shadowing = 4
+
+            PL_NLOS = 13.54+39.08log10(d_3D)+20log10(fc)-0.6(h_UE-1.5)  shadowing =6
+            """
             shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
-            return  42.6 + 26 * np.log10(distance) + 20 * np.log10(2*10^6)
+
+            return  32.44 + 20 * np.log10(distance) + 20 * np.log10(2)
 
         sinr_values = []
         for user in self.users:   # {x:x,y:y}
             distances = np.linalg.norm(self.base_stations - user, axis=1)
+            print(distances)
             path_losses = path_loss(distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
             received_powers = dbm_to_watt(self.tx_power - path_losses)
+            # # Rayleigh 衰落模拟
+            # A = np.random.rayleigh(scale=1.0, size=1)
+            # P_received = A ** 2  # Rayleigh 衰落
+            received_powers = received_powers
             print(received_powers)
             signal_power = np.max(received_powers)
             interference_power = np.sum(received_powers) - signal_power

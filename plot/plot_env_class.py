@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
+from configs.config_env import AREA_SIZE
+
+
 class TerrainEnvironment:
     def __init__(self, x_length, y_length, mesh_num, z_mode):
         self.x_length = x_length
@@ -94,8 +97,8 @@ class TerrainEnvironment:
         for user in self.users:
             self._plot_user(ax, user)
         self._plot_values(ax,self.users,sinrs)
-        ax.set_xlim([0, 1000])
-        ax.set_ylim([0, 1000])
+        ax.set_xlim([0, AREA_SIZE])
+        ax.set_ylim([0, AREA_SIZE])
         ax.set_zlim([0, 200])
         ax.set_xlabel("X")
         ax.set_ylabel("Y")

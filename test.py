@@ -1,3 +1,4 @@
+from configs.config_env import AREA_SIZE, MESH_NUM
 from plot.plot_env_class import TerrainEnvironment
 from envs.basestation_env import BaseStationEnv
 
@@ -9,14 +10,14 @@ from envs.basestation_env import BaseStationEnv
     build: (x,y,width,length,height)
     tree : (x,y,trunk_height, crown_height, radius)
 """
-user = [(100,200), (700,800),(600,650),(400,300),(300,400)]
-bs = [(500,500,30)]
+user = [(100,200), (1000,1000),(600,650),(1400,1300),(300,400)]
+bs = [(1995,1995,30),(5,5,30)]
 build = [(100,100,100,20,50)]
 tree = [(5,5,15,5,3)]
 
 
 # 创建地形环境
-terrain_env = TerrainEnvironment(x_length=1000, y_length=1000, mesh_num=100, z_mode=1)
+terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1)
 terrain_env.add_building(100, 100, 50, 50, 30)
 for i in range(len(bs)):
     terrain_env.add_bs(bs[i])
