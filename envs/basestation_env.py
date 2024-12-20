@@ -1,6 +1,8 @@
 import numpy as np
 import gymnasium as gym
 import matplotlib as plt
+from klampt.math.autodiff.math_ad import distance
+
 from configs.config_env import *
 GRID_NOT_GENERATED_FLAG = -1
 
@@ -20,7 +22,6 @@ class BaseStationEnv(gym.Env):
         self.noise_power = noise_power  # 热噪声功率 (dBm)
         self.path_loss_exponent = PATH_LOSS_EXPONENT  # 路径损耗指数
         self.shadowing_std = shadowing_std  # 阴影衰落标准差 (dB)
-
         # 状态空间 (基站和用户的位置)
         self.observation_space = gym.spaces.Box(
             low=0, high=area_size, shape=(num_base_stations + num_users, 2), dtype=np.float32
@@ -33,7 +34,8 @@ class BaseStationEnv(gym.Env):
 
         # 初始化用户和基站位置
         self.users = np.array([[point['x'], point['y'],0] for point in self.env.users])
-        self.base_stations = np.array([[point['x'], point['y'],point['z']] for point in self.env.bs])
+        self.bs = np.array([[point['x'], point['y'],point['z']] for point in self.env.bs])
+
 
     def reset(self):
         """重置环境"""
@@ -81,7 +83,23 @@ class BaseStationEnv(gym.Env):
         def dbm_to_watt(dbm):
             return 10 ** ((dbm - 30) / 10)
 
-        def path_loss(distance, exponent, shadowing_std):
+        def pathloss_los(distance, shadowing_std):
+            d_2d = np.sqrt(distance ** 2 - (H_BS - H_UE) ** 2)
+            if d_2d < D_BP:
+                PL = 32.4 + 21 * np.log10(distance) + 20 * np.log10(F)
+            else:
+                PL = 32.4 + 40 * np.log10(distance) + 20 * np.log10(F) - 9.5 * np.log10((D_BP) ** 2 + (H_BS - H_UE) ** 2)
+            shadowing = np.random.normal(0, shadowing_std , size=distance.shape)
+            PL += shadowing
+            return PL
+
+        def pathloss_nlos(distance, shadowing_std):
+            PL = 22.4 + 35.3 * np.log10(distance) + 21.3 * np.log10(F)
+            shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
+            PL += shadowing
+            return PL
+
+        def path_loss(user, distance, exponent, shadowing_std):
             # 添加阴影衰落,添加 LOS 与 NLOS 的不同计算方法
             """
             PL_LOS = PL1 else PL2  if 10<d_2D<d_BP
@@ -90,21 +108,32 @@ class BaseStationEnv(gym.Env):
 
             PL_NLOS = 13.54+39.08log10(d_3D)+20log10(fc)-0.6(h_UE-1.5)  shadowing =6
             """
-            shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
-
-            return  32.44 + 20 * np.log10(distance) + 20 * np.log10(2)
+            pathloss = []
+            for i in range(len(self.env.bs)):
+                if_obstacle = self.env.check_obstacle(user,self.bs[i])
+                print(if_obstacle)
+                if if_obstacle == False:
+                    PL = pathloss_los(distance[i],4)
+                    pathloss.append(PL)
+                else:
+                    PL_NLOS = pathloss_nlos(distance[i],7.82)
+                    PL_LOS = pathloss_los(distance[i],4)
+                    PL = max(PL_NLOS, PL_LOS)
+                    pathloss.append(PL)
+            print(pathloss)
+            return  np.array(pathloss)
 
         sinr_values = []
         for user in self.users:   # {x:x,y:y}
-            distances = np.linalg.norm(self.base_stations - user, axis=1)
-            print(distances)
-            path_losses = path_loss(distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
+            distances = np.linalg.norm(self.bs - user, axis=1)
+            print(f'distance\n{distances}')
+
+            path_losses = path_loss(user, distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
             received_powers = dbm_to_watt(self.tx_power - path_losses)
             # # Rayleigh 衰落模拟
             # A = np.random.rayleigh(scale=1.0, size=1)
             # P_received = A ** 2  # Rayleigh 衰落
             received_powers = received_powers
-            print(received_powers)
             signal_power = np.max(received_powers)
             interference_power = np.sum(received_powers) - signal_power
             noise_power_watt = dbm_to_watt(self.noise_power)

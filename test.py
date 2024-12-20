@@ -1,4 +1,4 @@
-from configs.config_env import AREA_SIZE, MESH_NUM
+from configs.config_env import *
 from plot.plot_env_class import TerrainEnvironment
 from envs.basestation_env import BaseStationEnv
 
@@ -10,15 +10,17 @@ from envs.basestation_env import BaseStationEnv
     build: (x,y,width,length,height)
     tree : (x,y,trunk_height, crown_height, radius)
 """
-user = [(100,200), (1000,1000),(600,650),(1400,1300),(300,400)]
-bs = [(1995,1995,30),(5,5,30)]
-build = [(100,100,100,20,50)]
+user = [(2000,3500,H_UE), (3000,3000,H_UE),(3600,650,H_UE),(2400,2300,H_UE),(4300,4400,H_UE),(300,4400,H_UE),(1000,300,H_UE)]
+bs = [(4995,4995,25),(5,5,25),(5,4995,25),(4995,5,25),(2500,2500,25)]
+# build = [(100,100,100,20,50)]
+build = []
 tree = [(5,5,15,5,3)]
 
 
 # 创建地形环境
-terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1)
-terrain_env.add_building(100, 100, 50, 50, 30)
+terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1, num_buildings=100,num_parks=2)
+terrain_env.generate_city()
+#terrain_env.generate_parks()
 for i in range(len(bs)):
     terrain_env.add_bs(bs[i])
 for i in range(len(user)):
@@ -28,6 +30,7 @@ for i in range(len(user)):
 bs_env = BaseStationEnv(
     bs_env=terrain_env
 )
+
 """
     中国移动的测试要求
     极好: sinr > 25

@@ -1,0 +1,4 @@
+Gymnasium==0.26.3
+Klampt==0.8.5
+matplotlib==3.3.4
+numpy==1.19.5
