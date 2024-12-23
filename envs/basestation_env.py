@@ -77,24 +77,59 @@ class BaseStationEnv(gym.Env):
         """获取环境的状态表示"""
         return np.vstack((self.base_stations, self.users))
 
-    def _calculate_sinr(self):
+    def _calculate_capability(self):
         """计算所有用户的平均 SINR，包括阴影衰落"""
 
         def dbm_to_watt(dbm):
             return 10 ** ((dbm - 30) / 10)
 
+        # 瑞利衰落模型：NLOS下的信号衰落
+        def rayleigh_fading(distance, sigma=1.0):
+            """
+            使用瑞利衰落模型来模拟信号的衰落。
+            :param distance: 信号传播的距离（可以是实际距离或与路径损耗有关的参数）
+            :param sigma: 瑞利衰落的标准差
+            :return: 衰落后的信号强度（幅度）
+            """
+            # 模拟瑞利衰落，信号幅度遵循瑞利分布
+            fading = np.random.rayleigh(scale=sigma, size=distance.shape)
+            return fading
+
+        # Rician衰落模型：LOS下的信号衰落
+        def rician_fading(distance, K_factor=3, sigma=1.0):
+            """
+            使用Rician衰落模型来模拟信号的衰落。
+            :param distance: 信号传播的距离
+            :param K_factor: 直射信号的强度与多径信号的强度比率
+            :param sigma: 多径信号的标准差
+            :return: 衰落后的信号强度（幅度）
+            """
+            # 生成瑞利衰落的随机部分（代表多径部分）
+            fading = np.random.normal(0, sigma, size=distance.shape) + 1j * np.random.normal(0, sigma,
+                                                                                             size=distance.shape)
+
+            # 生成直射信号部分（LOS）
+            line_of_sight = np.sqrt(K_factor / (K_factor + 1)) * distance
+
+            # 合成信号：直射信号部分和多径信号部分的叠加
+            total_signal = line_of_sight + fading
+            fading_signal = np.abs(total_signal)  # 衰落后的信号幅度
+            return fading_signal
+
         def pathloss_los(distance, shadowing_std):
             d_2d = np.sqrt(distance ** 2 - (H_BS - H_UE) ** 2)
             if d_2d < D_BP:
-                PL = 32.4 + 21 * np.log10(distance) + 20 * np.log10(F)
+                PL = 28 + 22 * np.log10(distance) + 20 * np.log10(F)
+            elif D_BP<=d_2d<5000:
+                PL = 28 + 40 * np.log10(distance) + 20 * np.log10(F) - 9 * np.log10((D_BP) ** 2 + (H_BS - H_UE) ** 2)
             else:
-                PL = 32.4 + 40 * np.log10(distance) + 20 * np.log10(F) - 9.5 * np.log10((D_BP) ** 2 + (H_BS - H_UE) ** 2)
+                PL = 1000
             shadowing = np.random.normal(0, shadowing_std , size=distance.shape)
             PL += shadowing
             return PL
 
         def pathloss_nlos(distance, shadowing_std):
-            PL = 22.4 + 35.3 * np.log10(distance) + 21.3 * np.log10(F)
+            PL = 13.54 + 39.08 * np.log10(distance) + 20 * np.log10(F)
             shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
             PL += shadowing
             return PL
@@ -113,34 +148,52 @@ class BaseStationEnv(gym.Env):
                 if_obstacle = self.env.check_obstacle(user,self.bs[i])
                 print(if_obstacle)
                 if if_obstacle == False:
-                    PL = pathloss_los(distance[i],4)
+                    PL = pathloss_los(distance[i],2)
+                    # 添加多径效应，假设环境因子为1.0
+                    PL -=  10*np.log10(rician_fading(distance[i]))
+                    print(PL)
                     pathloss.append(PL)
                 else:
-                    PL_NLOS = pathloss_nlos(distance[i],7.82)
+                    PL_NLOS = pathloss_nlos(distance[i],5)
+                    PL_NLOS -= 10 * np.log10(rayleigh_fading(distance[i]))
                     PL_LOS = pathloss_los(distance[i],4)
+                    PL_LOS -= 10 * np.log10(rician_fading(distance[i]))
                     PL = max(PL_NLOS, PL_LOS)
+                    print(PL)
                     pathloss.append(PL)
-            print(pathloss)
+            #print(pathloss)
             return  np.array(pathloss)
 
-        sinr_values = []
+        c_values = []
+        index_c = []
+        _pathloss = []
+        i = 1
         for user in self.users:   # {x:x,y:y}
+            print(f"正在计算用户{i}连接状况\n")
             distances = np.linalg.norm(self.bs - user, axis=1)
             print(f'distance\n{distances}')
 
             path_losses = path_loss(user, distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
+            print(f"用户{i}与基站的路损为\n")
+            print(path_losses)
             received_powers = dbm_to_watt(self.tx_power - path_losses)
             # # Rayleigh 衰落模拟
             # A = np.random.rayleigh(scale=1.0, size=1)
             # P_received = A ** 2  # Rayleigh 衰落
             received_powers = received_powers
             signal_power = np.max(received_powers)
+            index_of_signal_power = np.argmax(received_powers)
+            print(f"用户{i}与基站{index_of_signal_power+1}连接\n")
+            index_c.append(index_of_signal_power)
+            _pathloss.append(path_losses[index_of_signal_power])
             interference_power = np.sum(received_powers) - signal_power
             noise_power_watt = dbm_to_watt(self.noise_power)
             sinr = signal_power / (interference_power + noise_power_watt)
-            sinr_values.append(sinr)
-
-        return sinr_values
+            c = np.log2(1+ sinr)/10
+            print(f"用户{i}与基站{index_of_signal_power+1}连接的区域容量为{c}\n")
+            c_values.append(c)
+            i+=1
+        return c_values, index_c, _pathloss
 
 
 

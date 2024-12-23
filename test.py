@@ -18,7 +18,7 @@ tree = [(5,5,15,5,3)]
 
 
 # 创建地形环境
-terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1, num_buildings=100,num_parks=2)
+terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1, num_buildings=NUM_BUILDING,num_parks=2)
 terrain_env.generate_city()
 #terrain_env.generate_parks()
 for i in range(len(bs)):
@@ -39,7 +39,6 @@ bs_env = BaseStationEnv(
     差 :  3-10
     极差: sinr<3
 """
-sinr = bs_env._calculate_sinr()
+c, index_bs, _pathloss = bs_env._calculate_capability()
 
-print(sinr)
-bs_env.env.plot_environment(sinr)
+bs_env.env.plot_environment(c,index_bs,_pathloss)
