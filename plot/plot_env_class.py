@@ -5,7 +5,7 @@ import random
 from configs.config_env import AREA_SIZE
 
 
-
+random.seed(1000)
 class TerrainEnvironment:
     def __init__(self, x_length, y_length, mesh_num, z_mode, num_buildings, num_parks):
         self.x_length = x_length
@@ -275,5 +275,5 @@ class TerrainEnvironment:
             mid_x = (x + x_bs) / 2
             mid_y = (y + y_bs) / 2
             mid_z = (z + z_bs) / 2
-            #ax.text(mid_x, mid_y, mid_z, f'{_pathloss[index_bs[i]]:.2f}', color='black', fontsize=7, ha='center')
+            ax.text(mid_x, mid_y, mid_z, f'{_pathloss[index_bs[i]]:.2f}', color='black', fontsize=7, ha='center')
             ax.plot([x, x_bs], [y, y_bs], [z, z_bs], marker='o', color=color, label=f'{c[i]}',zorder = 10)

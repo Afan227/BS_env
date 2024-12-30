@@ -6,7 +6,7 @@ from klampt.math.autodiff.math_ad import distance
 from configs.config_env import *
 GRID_NOT_GENERATED_FLAG = -1
 
-
+np.random.seed(100)
 # We only consider Y is a rectangular in R^d
 class BaseStationEnv(gym.Env):
     def __init__(self, bs_env, area_size=AREA_SIZE, num_base_stations=NUM_BASE_STATIONS,
