@@ -1,6 +1,9 @@
+from torch import optim
+
 from configs.config_env import *
-from plot.plot_env_class import TerrainEnvironment
-from envs.basestation_env import BaseStationEnv
+from models.sicmdp import *
+from envs.basestation_env import *
+from plot.plot_env import plot_reward, plot_env
 
 """
     获取基站和用户的位置
@@ -12,27 +15,22 @@ from envs.basestation_env import BaseStationEnv
 """
 
 # 创建地形环境
-terrain_env = TerrainEnvironment(x_length=AREA_SIZE, y_length=AREA_SIZE, mesh_num=MESH_NUM, z_mode=1, num_buildings=NUM_BUILDING,num_parks=2)
-terrain_env.generate_city(building)
 
-for i in range(len(bs)):
-    terrain_env.add_bs(bs[i])
-for i in range(len(user)):
-    terrain_env.add_user(user[i])
 
-# 创建基站环境，传递地形环境对象
-bs_env = BaseStationEnv(
-    bs_env=terrain_env
-)
 
-"""
-    中国移动的测试要求
-    极好: sinr > 25
-    好点: 16-25
-    中点: 11-15
-    差 :  3-10
-    极差: sinr<3
-"""
-c, index_bs, _pathloss = bs_env._calculate_capability()
 
-bs_env.env.plot_environment(c,index_bs,_pathloss)
+if __name__ == "__main__":
+    # 初始化环境和策略
+    env = BaseStationEnv()
+    state = env.reset()[2]
+    state_dim = 6  # 对应preprocess_state提取的特征维度
+    action_dim = env.action_space.n
+    policy = PolicyNetwork(state_dim, action_dim)
+    optimizer = optim.Adam(policy.parameters(), lr=1e-3)
+
+    # 开始训练
+    history = train(env, policy, optimizer, episodes=100)
+    print(history)
+    plot_reward(history)
+    x = env.reset()
+    plot_env(x[0],x[1],x[2])

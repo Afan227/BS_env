@@ -1,62 +1,62 @@
-import numpy as np
+from scipy.interpolate import LinearNDInterpolator
 import gymnasium as gym
-import matplotlib as plt
-from klampt.math.autodiff.math_ad import distance
-
+from gymnasium.spaces import Discrete
+from scipy.stats import rice
 from configs.config_env import *
+from scipy.interpolate import griddata
 GRID_NOT_GENERATED_FLAG = -1
-
-np.random.seed(100)
+import time
+# np.random.seed(100)
 # We only consider Y is a rectangular in R^d
 class BaseStationEnv(gym.Env):
-    def __init__(self, bs_env, area_size=AREA_SIZE, num_base_stations=NUM_BASE_STATIONS,
-                 num_users=NUM_USERS, tx_power=TX_POWER, noise_power=NOISE_POWER,shadowing_std = SHADOWING_STD):
+    def __init__(self, area_size=AREA_SIZE, num_base_stations=NUM_BASE_STATIONS,
+                 num_users=NUM_USERS, tx_power=TX_POWER_S, noise_power=NOISE_POWER,shadowing_std = SHADOWING_STD):
         super(BaseStationEnv, self).__init__()
 
         # 环境参数
-        self.env = bs_env
         self.area_size = area_size  # 区域大小
         self.num_base_stations = num_base_stations  # 基站数量
         self.num_users = num_users  # 用户数量
-        self.tx_power = tx_power  # 基站发射功率 (dBm)
+        self.tx_power = np.array([tx_power,tx_power,tx_power,tx_power,tx_power])  # 基站发射功率 (dBm)
         self.noise_power = noise_power  # 热噪声功率 (dBm)
         self.path_loss_exponent = PATH_LOSS_EXPONENT  # 路径损耗指数
         self.shadowing_std = shadowing_std  # 阴影衰落标准差 (dB)
         # 状态空间 (基站和用户的位置)
-        self.observation_space = gym.spaces.Box(
-            low=0, high=area_size, shape=(num_base_stations + num_users, 2), dtype=np.float32
-        )
+        self.state = None
 
         # 动作空间 (基站位置调整)
-        self.action_space = gym.spaces.Box(
-            low=-100, high=100, shape=(num_base_stations, 2), dtype=np.float32
-        )
+        self.action_space = self.action_space = Discrete(7)
 
-        # 初始化用户和基站位置
-        self.users = np.array([[point['x'], point['y'],0] for point in self.env.users])
-        self.bs = np.array([[point['x'], point['y'],point['z']] for point in self.env.bs])
+        # 基站位置
+        self.bs = np.array(bs_position)
+        # 将存储的大尺度衰落转化为数组
+        self.large_scale = np.array(self.calculate_large_scale())
 
 
-    def reset(self):
+    def reset(self, seed = None,options = None):
         """重置环境"""
-        self.users = np.random.uniform(0, self.area_size, (self.num_users, 2))
-        self.base_stations = np.random.uniform(0, self.area_size, (self.num_base_stations, 2))
-        return self._get_observation()
+
+        self.state = self.sinr_map()
+
+        return self.state
 
     def step(self, action):
         """环境状态更新"""
         # 更新基站位置
-        self.base_stations += action
-        self.base_stations = np.clip(self.base_stations, 0, self.area_size)  # 限制基站在区域内
-
+        action = action_space[action]
+        print(f'本次选择的动作为：{action}')
+        self.tx_power[4] = action
+        #self.tx_power[4] = np.clip(self.tx_power[4], 37, 43)  # 限制在基站发射功率内
         # 计算奖励 (以平均 SINR 为奖励)
-        avg_sinr = self._calculate_avg_sinr()
-        reward = avg_sinr
-
+        sinr_map = self.sinr_map()
+        cost = self.calculate_cost(sinr_map[2])
+        power_consumption = dbm_to_watt(self.tx_power[4])
+        reward = self.calculate_reward(sinr_map[2],power_consumption)
         # 终止条件 (这里假设单步不终止，可根据实际需求调整)
         done = False
 
-        return self._get_observation(), reward, done, {}
+        return sinr_map, reward, cost ,done, {}
+
 
     def render(self, mode='human'):
         """可视化环境"""
@@ -73,127 +73,119 @@ class BaseStationEnv(gym.Env):
         plt.grid(True)
         plt.show()
 
-    def _get_observation(self):
-        """获取环境的状态表示"""
-        return np.vstack((self.base_stations, self.users))
+    def sinr_map(self):
+        sinr_values = self.calculate_sinr(x_sampled, y_sampled, z_sampled)
+        # 创建一个更细的网格，覆盖整个200x200的区域（例如2000x2000网格）
+        x_grid, y_grid = np.meshgrid(np.linspace(0, 200, 2000), np.linspace(0, 200, 2000))
 
-    def _calculate_capability(self):
+        # 使用SciPy的griddata进行插值，采用'linear'插值方法
+
+        interp = LinearNDInterpolator(tri, sinr_values)
+        sinr_grid = interp((x_grid, y_grid))
+        #sinr_grid = griddata((x_sampled, y_sampled), sinr_values, (x_grid, y_grid), method='linear')
+
+        # 查找 NaN 值的位置
+        nan_mask = np.isnan(sinr_grid)
+
+        # 仅对NaN值的位置进行填充，使用 'nearest' 方法进行填充
+        sinr_grid[nan_mask] = griddata((x_sampled, y_sampled), sinr_values, (x_grid[nan_mask], y_grid[nan_mask]),
+                                       method='nearest')
+
+
+        return x_grid, y_grid, sinr_grid   # 2000*2000
+
+
+    def calculate_large_scale(self):
+
+        # 存储每个采样点的大尺度衰落（路径损耗和阴影衰落）
+        large_scales = []
+        for x, y, z in zip(x_sampled, y_sampled, z_sampled):
+            distances = np.linalg.norm(self.bs - [x, y, z], axis=1)
+            large_scale = self.pathloss_los(distances, 3)
+            large_scales.append(large_scale)
+
+        return large_scales
+
+    def pathloss_los(self,distance, shadowing_std):
+        PL = 43.3 + 20 * np.log10(distance)
+        shadowing = np.random.normal(0, shadowing_std , size=distance.shape)
+        PL += shadowing
+        return PL
+
+    def calculate_sinr(self,x,y,z):
         """计算所有用户的平均 SINR，包括阴影衰落"""
+
+        N_samples = len(x)
+        N_bs = self.num_base_stations
+
 
         def dbm_to_watt(dbm):
             return 10 ** ((dbm - 30) / 10)
 
-        # 瑞利衰落模型：NLOS下的信号衰落
-        def rayleigh_fading(distance, sigma=1.0):
-            """
-            使用瑞利衰落模型来模拟信号的衰落。
-            :param distance: 信号传播的距离（可以是实际距离或与路径损耗有关的参数）
-            :param sigma: 瑞利衰落的标准差
-            :return: 衰落后的信号强度（幅度）
-            """
-            # 模拟瑞利衰落，信号幅度遵循瑞利分布
-            fading = np.random.rayleigh(scale=sigma, size=distance.shape)
-            return fading
-
         # Rician衰落模型：LOS下的信号衰落
-        def rician_fading(distance, K_factor=3, sigma=1.0):
-            """
-            使用Rician衰落模型来模拟信号的衰落。
-            :param distance: 信号传播的距离
-            :param K_factor: 直射信号的强度与多径信号的强度比率
-            :param sigma: 多径信号的标准差
-            :return: 衰落后的信号强度（幅度）
-            """
+        def rician_fading():
+            K = 3  # Rician K 因子
+            s = np.sqrt(K / (K + 1))  # 直射路径强度
+            sigma = np.sqrt(1 / (2 * (K + 1)))  # 散射信号标准差
             # 生成瑞利衰落的随机部分（代表多径部分）
-            fading = np.random.normal(0, sigma, size=distance.shape) + 1j * np.random.normal(0, sigma,
-                                                                                             size=distance.shape)
+            fading = rice.rvs(s / sigma, scale=sigma,size=(N_samples, N_bs))
+            return 10 * np.log10(fading ** 2)
 
-            # 生成直射信号部分（LOS）
-            line_of_sight = np.sqrt(K_factor / (K_factor + 1)) * distance
-
-            # 合成信号：直射信号部分和多径信号部分的叠加
-            total_signal = line_of_sight + fading
-            fading_signal = np.abs(total_signal)  # 衰落后的信号幅度
-            return fading_signal
-
-        def pathloss_los(distance, shadowing_std):
-            d_2d = np.sqrt(distance ** 2 - (H_BS - H_UE) ** 2)
-            if d_2d < D_BP:
-                PL = 28 + 22 * np.log10(distance) + 20 * np.log10(F)
-            elif D_BP<=d_2d<5000:
-                PL = 28 + 40 * np.log10(distance) + 20 * np.log10(F) - 9 * np.log10((D_BP) ** 2 + (H_BS - H_UE) ** 2)
-            else:
-                PL = 1000
-            shadowing = np.random.normal(0, shadowing_std , size=distance.shape)
-            PL += shadowing
-            return PL
-
-        def pathloss_nlos(distance, shadowing_std):
-            PL = 13.54 + 39.08 * np.log10(distance) + 20 * np.log10(F)
-            shadowing = np.random.normal(0, shadowing_std, size=distance.shape)
-            PL += shadowing
-            return PL
-
-        def path_loss(user, distance, exponent, shadowing_std):
+        def path_loss():
             # 添加阴影衰落,添加 LOS 与 NLOS 的不同计算方法
             """
-            PL_LOS = PL1 else PL2  if 10<d_2D<d_BP
-            PL1 = 28+22*log10(d_3D)+20log10(f)
-            PL2 = 28+40*log10(d_3D)+20log10(f)-9log10((d_BP)^2+(h_BS-h_UE)^2)   shadowing = 4
-
-            PL_NLOS = 13.54+39.08log10(d_3D)+20log10(fc)-0.6(h_UE-1.5)  shadowing =6
+            PL = 43.3 + 20 * np.log10(distance)
             """
-            pathloss = []
-            for i in range(len(self.env.bs)):
-                if_obstacle = self.env.check_obstacle(user,self.bs[i])
-                print(if_obstacle)
-                if if_obstacle == False:
-                    PL = pathloss_los(distance[i],2)
-                    # 添加多径效应，假设环境因子为1.0
-                    PL -=  10*np.log10(rician_fading(distance[i]))
-                    print(PL)
-                    pathloss.append(PL)
-                else:
-                    PL_NLOS = pathloss_nlos(distance[i],5)
-                    PL_NLOS -= 10 * np.log10(rayleigh_fading(distance[i]))
-                    PL_LOS = pathloss_los(distance[i],4)
-                    PL_LOS -= 10 * np.log10(rician_fading(distance[i]))
-                    PL = max(PL_NLOS, PL_LOS)
-                    print(PL)
-                    pathloss.append(PL)
-            #print(pathloss)
-            return  np.array(pathloss)
+            PL = self.large_scale - rician_fading()
+            return  PL
 
-        c_values = []
-        index_c = []
-        _pathloss = []
-        i = 1
-        for user in self.users:   # {x:x,y:y}
-            print(f"正在计算用户{i}连接状况\n")
-            distances = np.linalg.norm(self.bs - user, axis=1)
-            print(f'distance\n{distances}')
+        path_losses= path_loss()  # 包含阴影衰落
+        received_powers = dbm_to_watt(self.tx_power - path_losses)
 
-            path_losses = path_loss(user, distances, self.path_loss_exponent, self.shadowing_std)  # 包含阴影衰落
-            print(f"用户{i}与基站的路损为\n")
-            print(path_losses)
-            received_powers = dbm_to_watt(self.tx_power - path_losses)
-            # # Rayleigh 衰落模拟
-            # A = np.random.rayleigh(scale=1.0, size=1)
-            # P_received = A ** 2  # Rayleigh 衰落
-            received_powers = received_powers
-            signal_power = np.max(received_powers)
-            index_of_signal_power = np.argmax(received_powers)
-            print(f"用户{i}与基站{index_of_signal_power+1}连接\n")
-            index_c.append(index_of_signal_power)
-            _pathloss.append(path_losses[index_of_signal_power])
-            interference_power = np.sum(received_powers) - signal_power
-            noise_power_watt = dbm_to_watt(self.noise_power)
-            sinr = signal_power / (interference_power + noise_power_watt)
-            c = np.log2(1+ sinr)/10
-            print(f"用户{i}与基站{index_of_signal_power+1}连接的区域容量为{c}\n")
-            c_values.append(c)
-            i+=1
-        return c_values, index_c, _pathloss
+        signal_power = np.max(received_powers,axis=1)
+        index_of_signal_power = np.argmax(received_powers,axis=1)
+
+        interference_power = np.sum(received_powers,axis=1) - signal_power
+
+        noise_power_watt = dbm_to_watt(self.noise_power)
+        sinr = signal_power / (interference_power + noise_power_watt)
+        sinr_db = 10*np.log10(sinr)
+        #c = np.log2(1+ sinr)/10
+
+        return sinr_db
+
+    def calculate_cost(self, sinr_map, lower_bound=4, upper_bound=20, use_squared=False):
+        # 计算低于下限的惩罚
+        below_penalty = np.maximum(lower_bound - sinr_map, 0)
+        # 计算高于上限的惩罚
+        above_penalty = np.maximum(sinr_map - upper_bound, 0)
+
+        if use_squared:
+            below_penalty = below_penalty ** 2
+            above_penalty = above_penalty ** 2
+
+        # 总惩罚
+        total_cost = np.sum(below_penalty + above_penalty)
+        # 或者计算平均惩罚
+        average_cost = total_cost / sinr_map.size
+
+        return average_cost
+
+    def calculate_reward(self, sinr_matrix, power_consumption, power_weight=0.8):
+        # 计算满足 SINR 约束的比例（正向激励）
+        satisfied_mask = (sinr_matrix >= 4) & (sinr_matrix <= 20)
+        satisfaction_ratio = np.mean(satisfied_mask)
+
+        # 基础奖励：满足比例越高，奖励越高
+        reward = satisfaction_ratio
+        print(f'sinr奖励为{reward}')
+        # 惩罚项：功率消耗（需归一化处理）
+        normalized_power = power_consumption / 40  # 假设 MAX_POWER 是最大理论功率
+        reward -= power_weight * normalized_power
+        print(f'功率奖励为{ power_weight * normalized_power}')
+        print(f'奖励为{reward}')
+        return reward
 
 
-
+def dbm_to_watt(dbm):
+    return 10**(dbm/10)*1e-3
