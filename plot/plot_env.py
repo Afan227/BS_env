@@ -31,7 +31,7 @@ def plot_env(x_grid,y_grid,sinr_grid):
     # 显示图形
     plt.show()
 
-def plot_reward(history_rewards):
+def plot_reward(history_rewards,mode):
     # 示例：假设 episode_rewards 是历史 episode 的收益
 
     # 构造 x 轴数据（episode 序号）
@@ -41,7 +41,11 @@ def plot_reward(history_rewards):
     plt.figure(figsize=(10, 6))
     plt.plot(episodes, history_rewards, marker='o', linestyle='-', color='b')
     plt.xlabel('Episode')
-    plt.ylabel('Reward')
-    plt.title('Reinforcement Learning Episode Rewards')
+    if mode == 'reward':
+        plt.ylabel('Reward')
+        plt.title('Reinforcement Learning Episode Rewards')
+    else:
+        plt.ylabel('Cost')
+        plt.title('Reinforcement Learning Episode Costs')
     plt.grid(True)
     plt.show()

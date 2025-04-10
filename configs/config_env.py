@@ -17,6 +17,8 @@ D_BP = 3200   # 参考距离
 H_BS = 25 # 基站高度
 H_UE = 1.5 # 用户高度 m
 F = 2  # GHz
+#学习率
+LR = 1e-3
 
 iter_number = 500
 action_space = [37,38,39,40,41,42,43]
@@ -25,9 +27,12 @@ action_space = [37,38,39,40,41,42,43]
 # 设定采样点间隔为2米
 sampling_interval = 2
 
+x_min, x_max = 90, 140  # 假设子区域中心为(100,100)
+y_min, y_max = 60, 90
+
 # 生成200x200区域内的采样点坐标 (每隔2米一个采样点)
-x_sampled = np.arange(0, 200, sampling_interval)  # 从0到200，间隔2米
-y_sampled = np.arange(0, 200, sampling_interval)  # 从0到200，间隔2米
+x_sampled = np.arange(x_min, x_max, sampling_interval)  # 从0到200，间隔2米
+y_sampled = np.arange(y_min, y_max, sampling_interval)  # 从0到200，间隔2米
 
 # 使用 meshgrid 创建二维网格（所有采样点坐标）
 x_sampled, y_sampled = np.meshgrid(x_sampled, y_sampled)
